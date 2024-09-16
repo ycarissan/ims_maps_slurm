@@ -34,28 +34,27 @@ def getBonds(points):
                 bonds.append([i, j])
     return bonds
 
-def getCoords(geomfile):
+def getCoordsFromXML(filename):
     """
-    Returns labels and coordinates from an xyz file
+    Returns labels and coordinates from an XML file where the coordinates are stored.
     """
-    thrs = 1e-6
-    with open(geomfile) as fd:
-        coords = []
-        labels = []
-        for line in fd.readlines()[2:]:  # Skipping the first two lines (header of XYZ file)
-            lbl, x, y, z = line.split()
-            labels.append(lbl)
-            coords.append([float(x), float(y), float(z)])
-        coords = np.array(coords)
+    tree = ET.parse(filename)
+    root = tree.getroot()
 
-    # Reorient the coordinates if necessary
-    ptp = np.ptp(coords, axis=0)
-    if (ptp[0] < thrs):
-        coords[:, [0, 2]] = coords[:, [2, 0]]  # Swap X and Z
-    elif (ptp[1] < thrs):
-        coords[:, [0, 1]] = coords[:, [1, 0]]  # Swap X and Y
-        coords[:, [0, 2]] = coords[:, [2, 0]]  # Swap X and Z
-    return labels, coords
+    # Read atom labels and coordinates from XML
+    atoms = []
+    coords = []
+    geometry_elem = root.find('Geometry')
+    
+    for atom_elem in geometry_elem.findall('Atom'):
+        atom = atom_elem.find('Element').text
+        x = float(atom_elem.find('X').text)
+        y = float(atom_elem.find('Y').text)
+        z = float(atom_elem.find('Z').text)
+        atoms.append(atom)
+        coords.append([y, x, z]) # X et Y sont inversés dans le plot :(
+
+    return atoms, np.array(coords)
 
 def getDataFromXML(filename):
     """
@@ -80,9 +79,14 @@ def getDataFromXML(filename):
     nY = int(root.find('Parameters/NumberOfYPoints').text)
 
     # Extract isotropic values
-    data = [float(value_elem.text) for value_elem in root.findall('U_IsotropicValues/Value')]
+    data_U = [float(value_elem.text) for value_elem in root.findall('U_IsotropicValues/Value')]
+    data_R = None
+    try:
+        data_R = [float(value_elem.text) for value_elem in root.findall('R_IsotropicValues/Value')]
+    except:
+        pass
 
-    return Origin, VectX, VectY, nX, nY, data
+    return Origin, VectX, VectY, nX, nY, data_U, data_R
 
 def main(molecule_name):
     """
@@ -91,7 +95,6 @@ def main(molecule_name):
 
     # Directory and file names
     molecule_dir = "data"
-    map_type = "U"  # We're only dealing with 'U' map types for now.
 
     ims3d_color_scale = True  # Color scale for 3D maps
     show_atoms = True         # Show atoms in the plot
@@ -100,77 +103,82 @@ def main(molecule_name):
     image_format = "png"      # Save the image as PNG
 
     # File paths
-    geomfile = "{}/{}.xyz".format(molecule_dir, molecule_name)
     xmlfile = "{}/{}.xml".format(molecule_dir, molecule_name)
 
-    # Load coordinates and bonds from the geometry file
-    labels, coords = getCoords(geomfile)
+    # Load coordinates from the XML file (reoriented molecule)
+    labels, coords = getCoordsFromXML(xmlfile)
     bonds = getBonds(coords)
 
     # Load data from the XML file
-    Origin, VectX, VectY, nX, nY, data = getDataFromXML(xmlfile)
+    Origin, VectX, VectY, nX, nY, data_U, data_R = getDataFromXML(xmlfile)
 
-    # Generate the grid
-    X, Y = np.meshgrid(np.linspace(Origin[1], Origin[1]+nY*VectY[1], nY),
-                       np.linspace(Origin[0], Origin[0]+nX*VectX[0], nX))
+    formalisms = ["U"]
+    if data_R: formalisms.append("R")
 
-    print(data)
-    Z = np.array(data).reshape(nX, nY)
+    for formalism in formalisms:
+        # Generate the grid
+        X, Y = np.meshgrid(np.linspace(Origin[1], Origin[1]+nY*VectY[1], nY),
+                           np.linspace(Origin[0], Origin[0]+nX*VectX[0], nX))
 
-    # Define the color scale
-    if ims3d_color_scale:
-        colors = [(0.5, 0.0, 0.0),
-                  (0.8, 0.2, 0.2),
-                  (1.0, 0.6, 0.6),
-                  (1.0, 0.9, 0.8),
-                  (0.6, 0.7, 0.95),
-                  (0.0, 0.4, 0.85),
-                  (0.0, 0.0, 0.4)]
-        levels = [-22, -16.5, -11, -5.5, 5.5, 11, 16.5, 22]
+        if formalism=="U":
+            Z = np.array(data_U).reshape(nX, nY)
+        elif formalism=="R":
+            Z = np.array(data_R).reshape(nX, nY)
 
-    # Plot the data
-    fig, ax = plt.subplots()
+        # Define the color scale
+        if ims3d_color_scale:
+            colors = [(0.5, 0.0, 0.0),
+                      (0.8, 0.2, 0.2),
+                      (1.0, 0.6, 0.6),
+                      (1.0, 0.9, 0.8),
+                      (0.6, 0.7, 0.95),
+                      (0.0, 0.4, 0.85),
+                      (0.0, 0.0, 0.4)]
+            levels = [-22, -16.5, -11, -5.5, 5.5, 11, 16.5, 22]
 
-    # Adding contours
-    if ims3d_color_scale:
-        contours = ax.contourf(X, Y, Z, levels=levels, colors=colors)
-    else:
-        contours = ax.contourf(X, Y, Z)
+        # Plot the data
+        fig, ax = plt.subplots()
 
-    isocontours = ax.contour(X, Y, Z, levels=levels, colors=['black'], linewidths=1)
-    plt.colorbar(contours)
-    ax.autoscale(False)
-    ax.set_xlim(np.min([np.min(X), np.min(Y)]), np.max([np.max(X), np.max(Y)]))
+        # Adding contours
+        if ims3d_color_scale:
+            contours = ax.contourf(X, Y, Z, levels=levels, colors=colors)
+        else:
+            contours = ax.contourf(X, Y, Z)
 
-    # Adding the bonds if requested
-    if show_bonds:
-        for bond in bonds:
-            iat = bond[0]
-            jat = bond[1]
-            if jat > iat:  # Bonds are present twice in the list, we treat only one of both cases
-                ax.plot([coords[iat][0], coords[jat][0]], [coords[iat][1], coords[jat][1]],
-                        linewidth=3, color='gray', alpha=1)
+        isocontours = ax.contour(X, Y, Z, levels=levels, colors=['black'], linewidths=1)
+        plt.colorbar(contours)
+        ax.autoscale(False)
+        ax.set_xlim(np.min([np.min(X), np.min(Y)]), np.max([np.max(X), np.max(Y)]))
 
-    # Adding the atoms if requested
-    if show_atoms:
-        for lbl, at in zip(labels, coords):
-            if 'C' in lbl.upper():
-                col = 'black'
-            if 'H' in lbl.upper():
-                col = 'white'
-            circle = Circle((at[0], at[1]), 0.2, edgecolor="white", facecolor=col, fill=True, alpha=.8, zorder=2)
-            ax.add_patch(circle)
+        # Adding the bonds if requested
+        if show_bonds:
+            for bond in bonds:
+                iat = bond[0]
+                jat = bond[1]
+                if jat > iat:  # Bonds are present twice in the list, we treat only one of both cases
+                    ax.plot([coords[iat][0], coords[jat][0]], [coords[iat][1], coords[jat][1]],
+                            linewidth=3, color='gray', alpha=1)
 
-    # Save as image if requested
-    image_dir = "img"
-    if not os.path.exists(image_dir):
-        os.makedirs(image_dir)
+        # Adding the atoms if requested
+        if show_atoms:
+            for lbl, at in zip(labels, coords):
+                if 'C' in lbl.upper():
+                    col = 'black'
+                if 'H' in lbl.upper():
+                    col = 'white'
+                circle = Circle((at[0], at[1]), 0.2, edgecolor="white", facecolor=col, fill=True, alpha=.8, zorder=2)
+                ax.add_patch(circle)
 
-    if save_as_image:
-        imgfile = "{}/{}_{}.{}".format(image_dir, map_type, molecule_name, image_format)
-        plt.savefig(imgfile)
+        # Save as image if requested
+        image_dir = "img"
+        if not os.path.exists(image_dir):
+            os.makedirs(image_dir)
 
-    plt.show()
+        if save_as_image:
+            imgfile = "{}/{}_{}.{}".format(image_dir, formalism, molecule_name, image_format)
+            plt.savefig(imgfile)
+
+        plt.show()
 
 # Vérification des arguments de la ligne de commande
 if __name__ == "__main__":
