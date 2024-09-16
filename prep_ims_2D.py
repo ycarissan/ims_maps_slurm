@@ -122,7 +122,7 @@ def save_grid_to_xml(file_path, grid_points, x_points, y_points, step, reoriente
 
     # Convertir l'arbre XML en une chaîne et l'enregistrer dans un fichier
     tree = ET.ElementTree(root)
-    xml_file = os.path.splitext(file_path)[0] + '_grid_params.xml'
+    xml_file = os.path.splitext(file_path)[0] + '.xml'
     tree.write(xml_file, encoding='utf-8', xml_declaration=True)
 
 # Étape 7 : Générer un fichier .com pour Gaussian avec grille

@@ -4,6 +4,21 @@ import numpy as np
 import pandas as pd
 import os
 
+def count_carbons_and_hydrogens_in_xyz(filename):
+    """
+    Compte le nombre d'atomes (C et H) dans un fichier au format XYZ.
+    Le fichier XYZ contient une liste d'éléments chimiques et leurs coordonnées.
+    """
+    with open(filename, 'r') as file:
+        # Lire toutes les lignes sauf les deux premières (qui sont des métadonnées dans un fichier XYZ)
+        lines = file.readlines()[2:]
+        
+        # Compter le nombre d'atomes de carbone (symbolisés par 'C')
+        carbon_count = sum(1 for line in lines if line.split()[0].upper() == 'C')
+        hydrogen_count = sum(1 for line in lines if line.split()[0].upper() == 'H')
+        
+    return carbon_count+hydrogen_count
+
 def check_normal_termination(file_path):
     # Ouvrir le fichier et lire tout son contenu
     with open(file_path, 'r') as file:
@@ -50,9 +65,10 @@ if __name__=="__main__":
     fichier_xyz = sys.argv[1]
     fichier_xml = fichier_xyz.replace(".xyz", ".xml")
     fichier_log = fichier_xyz.replace(".xyz", ".log")
+    nat = count_carbons_and_hydrogens_in_xyz(fichier_xyz)
     for formalism in ['U', 'R']:
         prefixed_fichier_log = "{}_{}".format(formalism, fichier_log)
         if check_normal_termination(prefixed_fichier_log):
-            data = extract_isotropic_data(prefixed_fichier_log)
+            data = extract_isotropic_data(prefixed_fichier_log)[nat:]
             add_isotropic_data_to_xml(fichier_xml, data, formalism)
 
