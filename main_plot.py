@@ -88,13 +88,10 @@ def getDataFromXML(filename):
 
     return Origin, VectX, VectY, nX, nY, data_U, data_R
 
-def main(molecule_name):
+def main(molecule_dir, molecule_name):
     """
     Generate an image from the data stored in the XML file.
     """
-
-    # Directory and file names
-    molecule_dir = "data"
 
     ims3d_color_scale = True  # Color scale for 3D maps
     show_atoms = True         # Show atoms in the plot
@@ -182,8 +179,8 @@ def main(molecule_name):
 
 # Vérification des arguments de la ligne de commande
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python main.py <molecule_name>")
+    if len(sys.argv) != 3:
+        print("Usage: python main.py <dir> <molecule_name>")
     else:
-        main(sys.argv[1])
+        main(sys.argv[1], sys.argv[2])
 
