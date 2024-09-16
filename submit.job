@@ -1,0 +1,118 @@
+#!/bin/sh
+#SBATCH -J Collection
+#SBATCH -p skylake
+#SBATCH -N 1
+#SBATCH -n 16
+#SBATCH -A b278
+#SBATCH -t 8:00:00
+#SBATCH -o %x_%J.outerr
+## #SBATCH -L scratchfast:2
+## #SBATCH -e %x_%J.err
+
+XTB=/home/ycarissan/prog/grimme/xtb-6.6.0/bin/xtb
+WORKDIR=${SLURM_SUBMIT_DIR}
+OFFSET=0
+ITASK=${SLURM_ARRAY_TASK_ID}
+IVAL=$(( $ITASK + $OFFSET ))
+RADICAL=$(sed -n "${IVAL}p" list)
+INPUT_R=R_${RADICAL}.com
+INPUT_U=U_${RADICAL}.com
+OUTPUT_R=R_${RADICAL}.log
+OUTPUT_U=U_${RADICAL}.log
+FILENAME_FORCE_MS=${RADICAL}_force_ms.txt
+ARCHIVE=${RADICAL}_maps.tar.gz
+SCRATCHDIR=/scratch/$SLURM_JOB_USER/$SLURM_JOB_ID/
+
+function job_termination() {
+   tar -czvf ${ARCHIVE} ${OUTPUT_R} ${OUTPUT_U} --directory=${WORKDIR} ${RADICAL}_Bonds.dat ${RADICAL}_rota.xyz 
+   
+   cp ${ARCHIVE} ${WORKDIR}
+
+   rm ${SCRATCHDIR}/*
+   rm ${SCRATCHDIR}/.*
+   rmdir ${SCRATCHDIR}
+}
+
+echo "Job started from ... : ${WORKDIR}"
+echo "task number ........ : ${ITASK}"
+echo "molecule number .... : ${IVAL}"
+echo "molecule ........... : ${RADICAL}"
+echo "input R............. : ${INPUT_R}"
+echo "input U............. : ${INPUT_U}"
+echo "output R............ : ${OUTPUT_R}"
+echo "output U............ : ${OUTPUT_U}"
+echo "force MS............ : ${FILENAME_FORCE_MS}"
+echo "SCRATCHDIR ......... : ${SCRATCHDIR}"
+
+echo "Chargement des modules"
+module purge
+module load userspace/all
+echo "ok"
+
+echo "Activation du python"
+# >>> conda initialize >>>
+# !! Contents within this block are managed by 'conda init' !!
+__conda_setup="$('/home/ycarissan/anaconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    if [ -f "/home/ycarissan/anaconda3/etc/profile.d/conda.sh" ]; then
+        . "/home/ycarissan/anaconda3/etc/profile.d/conda.sh"
+    else
+        export PATH="/home/ycarissan/anaconda3/bin:$PATH"
+    fi
+fi
+unset __conda_setup
+# <<< conda initialize <<<
+
+export MODULEPATH=${MODULEPATH}:$PWD/modulefiles
+
+conda init bash
+conda activate avaret_util
+
+echo "Chargement de gaussian"
+g16root=/home/ycarissan/G16_SLATER
+GAUSS_SCRDIR=$SCRATCHDIR
+export g16root GAUSS_SCRDIR
+. $g16root/g16/bsd/g16.profile
+echo "ok"
+
+echo "Creating SCRATCHDIR"
+mkdir -p $SCRATCHDIR
+
+[ -d $SCRATCHDIR ] || job_termination
+
+echo "Entering SCRATCHDIR"
+cd $SCRATCHDIR
+cp ${WORKDIR}/${RADICAL}.com ${WORKDIR}/${INPUT_U}
+sed s/Ub3lyp/Rb3lyp/ ${WORKDIR}/${INPUT_U} > ${WORKDIR}/${INPUT_R}
+
+cp ${WORKDIR}/${INPUT_U} .
+cp ${WORKDIR}/${INPUT_R} .
+
+#Assigne la multiplicité de spin
+if [ -f ${WORKDIR}/${FILENAME_FORCE_MS} ]; then
+  echo "Getting forced ms file from ${WORKDIR}"
+  rsync ${WORKDIR}/${FILENAME_FORCE_MS} .
+  mult=$(cat ${FILENAME_FORCE_MS})
+else
+  nH=$(grep -v 'H:' ${INPUT_R}|grep -c ^\ *H)
+  if [ $((nH%2)) -eq 0 ]; then
+    mult=1
+  else
+    mult=2
+  fi
+fi
+
+echo "Multiplicite ... : ${mult}"
+
+sed -i s/"0 1"/"0 $mult"/ ${INPUT_R}
+sed -i s/"0 1"/"0 $mult"/ ${INPUT_U}
+
+echo "Computing R map"
+g16 < ${INPUT_R} > ${OUTPUT_R}
+
+echo "Computing U map"
+g16 < ${INPUT_U} > ${OUTPUT_U}
+
+job_termination
